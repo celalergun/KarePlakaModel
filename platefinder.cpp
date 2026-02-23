@@ -171,7 +171,7 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
     // YOLO predicts multiple overlapping boxes for the same plate.
     // NMS removes the duplicates and keeps only the best one.
     std::vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, 0.1f, 0.9f, indices);
+    cv::dnn::NMSBoxes(boxes, confidences, 0.1f, 0.5f, indices);
     cout << "Boxes: " << boxes.size() << endl;
 
     // 6. Draw the final boxes on the original image
