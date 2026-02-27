@@ -192,8 +192,8 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
     auto inf_duration = std::chrono::duration_cast<std::chrono::milliseconds>(inf_end - inf_start).count();
     auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start).count();
 
-    std::cout << "Model Inference Time: " << inf_duration << " ms\n";
-    std::cout << "Total Pipeline Time:  " << total_duration << " ms\n";
+    std::cout << "Model Inference Time : " << inf_duration << " ms\n";
+    std::cout << "Total Pipeline Time  : " << total_duration << " ms\n";
     // Display the result!
     cv::imshow("Plate Detection Result", picture);
     //cv::waitKey(0); // Wait until the user presses a key
