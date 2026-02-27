@@ -18,6 +18,8 @@ PlateFinder::PlateFinder(QString modelName)
     // onnxruntime setup
     env = new Ort::Env(ORT_LOGGING_LEVEL_WARNING, "Default");
     session_options = new Ort::SessionOptions();
+    session_options->SetInterOpNumThreads(1);
+    session_options->SetIntraOpNumThreads(1);
     session = new Ort::Session(*env, modelName.toStdString().c_str(), *session_options);
 
     // print name/shape of inputs
@@ -57,7 +59,7 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
     cv::resize(picture, resizedImage, cv::Size(MODEL_WIDTH, MODEL_HEIGHT));
 
     // OpenCV loads as BGR, but models usually expect RGB
-    cv::cvtColor(resizedImage, resizedImage, cv::COLOR_BGR2RGB);
+    //cv::cvtColor(resizedImage, resizedImage, cv::COLOR_BGR2RGB);
 
     // Normalize pixel values from [0, 255] to [0.0, 1.0] and convert to float
     resizedImage.convertTo(resizedImage, CV_32FC3, 1.0f / 255.0f);
@@ -86,6 +88,19 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
         inputDims.data(),
         inputDims.size()
         );
+    std::vector<PlateResult> results;
+    // std::vector<Ort::Value> inputTensor;        // Onnxruntime allowed input
+
+    // // this will make the input into 1,3,640,640
+    // cv::Mat blob = cv::dnn::blobFromImage(picture, 1 / 255.0, cv::Size(640, 640), (0, 0, 0), false, false);
+    // size_t input_tensor_size = blob.total();
+    // try {
+    //     inputTensor.emplace_back(Ort::Value::CreateTensor<float>(memory_info, (float*)blob.data, input_tensor_size, input_node_dims[0].data(), input_node_dims[0].size()));
+    // }
+    // catch (Ort::Exception oe) {
+    //     std::cout << "ONNX exception caught: " << oe.what() << ". Code: " << oe.GetOrtErrorCode() << ".\n";
+    //     return results;
+    // }
 
     // ---------------------------------------------------------
     // 4. RUN INFERENCE
@@ -105,102 +120,63 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
     // ---------------------------------------------------------
     // 5. READ THE OUTPUT (POST-PROCESSING)
     // ---------------------------------------------------------
-    // Get a pointer to the raw float data coming out of the model
-    // ---------------------------------------------------------
-    // 5. READ THE OUTPUT (POST-PROCESSING)
-    // ---------------------------------------------------------
     float* outputData = outputTensors[0].GetTensorMutableData<float>();
 
-    // 1. Wrap the raw data in an OpenCV Mat and transpose it.
-    // This changes [6, 8400] into [8400, 6], making it 8400 rows and 6 columns.
+    int rows = 300;
     int dimensions = 6;
-    int rows = 8400;
-    cv::Mat outputMat(dimensions, rows, CV_32F, outputData);
-    cv::Mat transposedMat = outputMat.t();
 
-    // Vectors to hold our filtered results
-    std::vector<cv::Rect> boxes;
-    std::vector<float> confidences;
-    std::vector<int> classIds;
-
-    // 2. Calculate scale factors
-    // The model predicted boxes for a 640x640 image, but we want to draw
-    // them on the ORIGINAL image size.
+    // Calculate scale factors (to stretch boxes to original image size)
     float x_factor = (float)picture.cols / MODEL_WIDTH;
     float y_factor = (float)picture.rows / MODEL_HEIGHT;
 
-    // 3. Iterate through all 8400 rows
+    // Loop through the 300 predictions
     for (int i = 0; i < rows; ++i) {
-        float* rowPtr = transposedMat.ptr<float>(i);
+        // Point to the beginning of the current row
+        float* rowPtr = outputData + (i * dimensions);
 
-        // rowPtr[0] = center_x, rowPtr[1] = center_y
-        // rowPtr[2] = width,    rowPtr[3] = height
-        // rowPtr[4] = class 0 score, rowPtr[5] = class 1 score
+        // Modern NMS-Free YOLO models output this exact format:
+        // rowPtr[0] = x_min
+        // rowPtr[1] = y_min
+        // rowPtr[2] = x_max
+        // rowPtr[3] = y_max
+        // rowPtr[4] = confidence score
+        // rowPtr[5] = class ID (e.g., 0.0 for Class 0, 1.0 for Class 1)
 
-        // Find which class has the highest score
-        float maxScore = -1.0f;
-        int bestClassId = -1;
+        float score = rowPtr[4];
 
-        for (int c = 4; c < dimensions; ++c) {
-            if (rowPtr[c] > maxScore) {
-                maxScore = rowPtr[c];
-                bestClassId = c - 4; // Will result in 0 or 1
-            }
-        }
+        // Filter out weak predictions
+        if (score > 0.45f) { // Confidence threshold
+            float x1 = rowPtr[0];
+            float y1 = rowPtr[1];
+            float x2 = rowPtr[2];
+            float y2 = rowPtr[3];
+            int classId = static_cast<int>(rowPtr[5]);
 
-        // 4. Filter out weak predictions (Confidence Threshold)
-        if (maxScore > 0.1f) { // You can adjust this threshold between 0.1 and 0.9
-            float cx = rowPtr[0];
-            float cy = rowPtr[1];
-            float w = rowPtr[2];
-            float h = rowPtr[3];
+            // Scale the coordinates back to the original image size
+            int left = int(x1 * x_factor);
+            int top = int(y1 * y_factor);
+            int right = int(x2 * x_factor);
+            int bottom = int(y2 * y_factor);
 
-            // Convert center coordinates to top-left coordinates and scale them
-            int left = int((cx - 0.5 * w) * x_factor);
-            int top = int((cy - 0.5 * h) * y_factor);
-            int width = int(w * x_factor);
-            int height = int(h * y_factor);
+            // Calculate width and height for OpenCV's Rect
+            int width = right - left;
+            int height = bottom - top;
 
-            boxes.push_back(cv::Rect(left, top, width, height));
-            confidences.push_back(maxScore);
-            classIds.push_back(bestClassId);
+            cv::Rect box(left, top, width, height);
+
+            // Draw the rectangle
+            cv::rectangle(picture, box, cv::Scalar(0, 255, 0), 3);
+
+            // Create a label with the class ID and confidence score
+            std::string label = "Class " + std::to_string(classId) + " (" + std::to_string(score).substr(0, 4) + ")";
+
+            // Draw the text
+            cv::putText(picture, label, cv::Point(box.x, box.y - 10),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
         }
     }
 
-    // 5. Non-Maximum Suppression (NMS)
-    // YOLO predicts multiple overlapping boxes for the same plate.
-    // NMS removes the duplicates and keeps only the best one.
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, 0.1f, 0.5f, indices);
-    cout << "Boxes: " << boxes.size() << endl;
-
-    // 6. Draw the final boxes on the original image
-    std::vector<PlateResult> results;
-    for (int idx : indices) {
-        cv::Rect box = boxes[idx];
-        int classId = classIds[idx];
-        float conf = confidences[idx];
-
-        // Draw the rectangle
-        cv::rectangle(picture, box, cv::Scalar(0, 255, 128), 2); // Green box, thickness 3
-
-        // Create a label with the class ID and confidence score
-        std::string label = "Class " + std::to_string(classId) + " (" + std::to_string(conf).substr(0, 4) + ")";
-
-        // Draw the text
-        cv::putText(picture, label, cv::Point(box.x, box.y - 10),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(128, 255, 0), 2);
-        PlateResult res;
-        res.confidence = conf;
-        res.x = box.x;
-        res.y = box.y;
-        res.w = box.width;
-        res.h = box.height;
-        results.push_back(res);
-
-    }
-
-    // 7. Display the result!
+    // Display the result!
     cv::imshow("Plate Detection Result", picture);
     //cv::waitKey(0); // Wait until the user presses a key
     return results;
