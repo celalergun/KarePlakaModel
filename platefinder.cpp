@@ -1,6 +1,8 @@
 #include "platefinder.h"
 #include <sstream>
 #include <iostream>
+#include <chrono>
+
 using std::cout;
 using std::endl;
 
@@ -52,6 +54,7 @@ PlateFinder::PlateFinder(QString modelName)
 
 std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float threshold)
 {
+    auto total_start = std::chrono::high_resolution_clock::now();
     const int MODEL_WIDTH = 640;
     const int MODEL_HEIGHT = 640;
 
@@ -105,8 +108,11 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
     // ---------------------------------------------------------
     // 4. RUN INFERENCE
     // ---------------------------------------------------------
+    // --- Start Inference Timer ---
+    auto inf_start = std::chrono::high_resolution_clock::now();
     // IMPORTANT: You must use the exact input and output node names from your model!
     // Common YOLO names are "images" and "output0".
+
     const char* inputNames[] = {"images"};
     const char* outputNames[] = {"output0"};
 
@@ -116,6 +122,8 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
         &inputTensor, 1,
         outputNames, 1
         );
+    // --- Stop Inference Timer ---
+    auto inf_end = std::chrono::high_resolution_clock::now();
 
     // ---------------------------------------------------------
     // 5. READ THE OUTPUT (POST-PROCESSING)
@@ -175,7 +183,17 @@ std::vector<PlateResult> PlateFinder::InspectPicture(cv::Mat &picture, float thr
                         cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0, 255, 0), 2);
         }
     }
+    // --- Stop Total Timer ---
+    auto total_end = std::chrono::high_resolution_clock::now();
+    // ---------------------------------------------------------
+    // CALCULATE AND PRINT THE RESULTS
+    // ---------------------------------------------------------
+    // Calculate time in milliseconds
+    auto inf_duration = std::chrono::duration_cast<std::chrono::milliseconds>(inf_end - inf_start).count();
+    auto total_duration = std::chrono::duration_cast<std::chrono::milliseconds>(total_end - total_start).count();
 
+    std::cout << "Model Inference Time: " << inf_duration << " ms\n";
+    std::cout << "Total Pipeline Time:  " << total_duration << " ms\n";
     // Display the result!
     cv::imshow("Plate Detection Result", picture);
     //cv::waitKey(0); // Wait until the user presses a key
