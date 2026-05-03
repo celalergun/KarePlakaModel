@@ -17,7 +17,7 @@ In order to load and use ONNX runtime under Linux:
 3. Go to `runtimes/linux-x64/native`
 4. Copy `libonnxruntime.so` to `./onnx/lib` folder of your project
 5. ln -s libonnxruntime.so libonnxruntime.so.1
-6. Copy include files (recursively) to your project file as well
+6. Copy include files (recursively) to your project folder as well
     
     `cp -r build/native/include/ ./onnx/`
 
@@ -25,4 +25,4 @@ In order to load and use ONNX runtime under Linux:
 
     sudo ln -s /usr/include/opencv4/opencv2 /usr/include/opencv2
 
-Some *italic* and **bold** text and `inline code`.
+
