@@ -4,7 +4,8 @@ This license plate detector is a technology demonstration of how to use ONNX und
 
 ## Training
 
-I annotated license plate images (4000+ jpeg files) and trained my model using YOLOv8.
+I annotated license plate images (4000+ jpeg files) and trained my model using ~~YOLOv8~~ YOLOv26. It is quite convenient to use Yolo26 since I don't have to run Non-Maximum Supression.
+
 
 - Long plates
 + Square(ish) plates
